@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useUser } from "@/features/user/presentation/context/UserContext";
 
 const KYC_STATUS_GUIDANCE: Record<string, { label: string; guidance: string; action: string }> = {
@@ -17,6 +17,19 @@ export function KycBanner() {
     const { currentUser } = useUser();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [returningFromKyc, setReturningFromKyc] = useState(false);
+
+    useEffect(() => {
+        const refreshAfterProviderReturn = () => {
+            if (sessionStorage.getItem("kyc-return-pending") !== "true") return;
+            sessionStorage.removeItem("kyc-return-pending");
+            setReturningFromKyc(true);
+            // Re-fetch the account from the backend; provider URL parameters are never proof of approval.
+            window.location.reload();
+        };
+        window.addEventListener("focus", refreshAfterProviderReturn);
+        return () => window.removeEventListener("focus", refreshAfterProviderReturn);
+    }, []);
 
     if (!currentUser || currentUser.kycStatus === "approved") {
         return null;
@@ -47,12 +60,15 @@ export function KycBanner() {
 
             const data = await res.json();
             if (data?.sessionUrl) {
-                window.open(data.sessionUrl, "_blank", "noopener,noreferrer");
+                sessionStorage.setItem("kyc-return-pending", "true");
+                const providerWindow = window.open(data.sessionUrl, "_blank", "noopener,noreferrer");
+                if (!providerWindow) sessionStorage.removeItem("kyc-return-pending");
                 setIsLoading(false);
             } else {
                 throw new Error("No verification URL returned");
             }
         } catch (err: unknown) {
+            sessionStorage.removeItem("kyc-return-pending");
             console.error("KYC start error:", err);
             setError(err instanceof Error ? err.message : "Something went wrong starting KYC.");
             setIsLoading(false);
